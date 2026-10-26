@@ -1,0 +1,12 @@
+.env
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+artifacts/*
+!artifacts/.gitkeep
+demo-app/
+benchmarks/
+fixtures/
+benchmarks/
+docs/

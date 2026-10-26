@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shipproof
+      POSTGRES_USER: shipproof
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shipproof-local}
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U shipproof]
+      interval: 2s
+      retries: 30
+    networks: [state]
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment: &env
+      DATABASE_URL: postgresql+psycopg://shipproof:${POSTGRES_PASSWORD:-shipproof-local}@db/shipproof
+      DEMO_URL: http://demo:8001
+      ARTIFACT_ROOT: /evidence
+      SHIPPROOF_UI_ORIGIN: ${SHIPPROOF_UI_ORIGIN:-http://localhost:5178}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-2.5-flash}
+      OPENROUTER_FALLBACK_MODEL: ${OPENROUTER_FALLBACK_MODEL:-}
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [state]
+  api:
+    build: ./backend
+    ports: ["127.0.0.1:${SHIPPROOF_API_PORT:-8018}:8000"]
+    environment: *env
+    volumes: [./artifacts:/evidence]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    networks: [state, outbound]
+  worker:
+    build: ./backend
+    command: python -m app.worker
+    environment: *env
+    volumes: [./artifacts:/evidence]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      demo: {condition: service_started}
+    networks: [state, verification, outbound]
+  demo:
+    build: ./backend
+    command: uvicorn app.demo:app --host 0.0.0.0 --port 8001
+    ports: ["127.0.0.1:${SHIPPROOF_DEMO_PORT:-8019}:8001"]
+    networks: [verification, outbound]
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:${SHIPPROOF_UI_PORT:-5178}:80"]
+    depends_on: [api]
+    networks: [outbound]
+volumes:
+  postgres:
+networks:
+  state: {internal: true}
+  verification: {internal: true}
+  outbound: {}
