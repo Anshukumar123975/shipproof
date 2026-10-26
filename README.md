@@ -1,74 +1,218 @@
 # ShipProof
 
-**Know what actually works before you ship.**
+### Know what actually works before you ship.
 
-A local release-verification application: React dashboard → FastAPI → PostgreSQL leased worker → Playwright / HTTPX → independently evaluated assertions → hashed evidence → release report.
+ShipProof is an AI-powered release verification system that investigates GitHub pull requests, maps feature requirements to executable checks, runs browser and API tests, and produces evidence-backed release-readiness reports.
 
-## Run
+**The idea is simple: passing CI doesn't necessarily mean a feature works as intended.**
 
-Requires Docker Engine with Compose, internet access for image/dependency downloads, and roughly 3 GB available for images.
+A PR might pass every unit test while still breaking a user journey, missing a requirement, or introducing an unexpected regression.
 
-```sh
+ShipProof aims to close that gap.
+
+---
+
+## The Problem
+
+AI coding tools have made generating software faster than ever. But verifying that a change actually satisfies its requirements is still a challenge.
+
+Traditional tests are often predefined. AI agents can explore dynamically, but autonomous verification introduces its own problems:
+
+- How do we know whether a requirement has genuinely been verified?
+- How much testing is enough?
+- What if the agent keeps repeating unproductive actions?
+- What happens when verification is incomplete or uncertain?
+
+ShipProof approaches these questions through **evidence-driven verification and progress-aware agent execution**.
+
+## How ShipProof Works
+
+```text
+GitHub PR + Requirements + Staging URL
+                  |
+          Change Impact Analysis
+                  |
+          Verification Planning
+                  |
+       Progress-Aware Controller
+                  |
+           Browser / API Tests
+                  |
+          Evidence Verification
+                  |
+          Release Readiness Report
+```
+
+### 1. Understand the change
+
+Analyze the PR to identify changed files, affected components, and relevant feature requirements.
+
+### 2. Plan verification
+
+Translate requirements into targeted browser and API checks using deterministic rules and optional LLM-assisted planning.
+
+### 3. Execute and collect evidence
+
+Run checks against an authorized staging environment and collect observations, assertion results, and screenshots.
+
+### 4. Evaluate progress
+
+Track requirement coverage, new evidence, repeated actions, and execution budgets.
+
+### 5. Report the outcome
+
+Generate a release-readiness report explaining what passed, what failed, and what remains unverified.
+
+---
+
+## The Core Architecture: Progress-Aware Execution
+
+One of ShipProof's central design decisions is separating **agent reasoning from execution control**.
+
+The agent proposes actions. An independent controller decides whether execution should continue.
+
+```mermaid
+flowchart TD
+    A["PR + Acceptance Criteria"] --> B["Verification Planner"]
+    B --> C["Execution Controller"]
+    C --> D["Browser / API Agents"]
+    D --> E["Evidence Verifier"]
+    E --> F["Progress Evaluator"]
+    F --> G{"Decision Engine"}
+    G -->|Continue / Replan| C
+    G -->|Verified| H["Release Report"]
+    G -->|Incomplete| I["Unresolved Risks"]
+    G -->|Approval Required| J["Wait for Human"]
+    F <--> K[("Durable Execution State")]
+    G <--> K
+```
+
+Instead of relying only on fixed iteration limits, the controller considers:
+
+- **Completion:** Have the required checks been independently verified?
+- **Progress:** Are recent actions producing useful new evidence?
+- **Budget:** How much execution time and cost remain?
+- **Risk:** Does the next action require authorization or human approval?
+
+The controller supports continuing, replanning, finishing verification, stopping incomplete, and waiting for approval.
+
+Importantly, **finishing verification is not the same as approving a release**.
+
+## Evidence Over Confidence
+
+ShipProof does not treat an LLM's confidence as proof that a feature works.
+
+Verification outcomes are grounded in executed checks and observable evidence.
+
+| Status | Meaning |
+|---|---|
+| PASS | Requirement satisfied by executed assertions |
+| FAIL | Executed assertions found a violation |
+| UNKNOWN | Insufficient evidence or incomplete verification |
+
+The resulting release recommendation can be **READY**, **BLOCKED**, or **NEEDS_REVIEW**.
+
+A READY recommendation applies only to the configured verification scope-not a guarantee that the software contains no defects.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | Python, FastAPI |
+| Frontend | React, TypeScript, Tailwind CSS |
+| Agent reasoning | OpenRouter |
+| Browser verification | Playwright |
+| API verification | HTTPX |
+| Persistence | PostgreSQL |
+| Infrastructure | Docker Compose |
+
+OpenRouter provides model-assisted analysis and verification planning, while deterministic verifiers remain responsible for test outcomes.
+
+## Getting Started
+
+### Prerequisites
+
+- Docker and Docker Compose
+- An OpenRouter API key for LLM-assisted features (optional for the deterministic demo)
+
+### Run locally
+
+```bash
+git clone <YOUR_REPOSITORY_URL>
+cd shipproof
+
 cp .env.example .env
-docker compose up --build -d
+docker compose up --build
 ```
 
-- Dashboard: http://localhost:5178
-- API documentation: http://localhost:8018/docs
-- Demo staging app: http://localhost:8019/orders
+Configure your OpenRouter credentials in `.env` if enabling model-assisted features:
 
-Database migrations run before API/worker startup. PostgreSQL uses a persistent Docker volume; evidence is stored in `./artifacts`. Stop with `docker compose down` (preserves data). Ports bind only to loopback. This is a trusted, single-user local application, not a public service.
-
-## First real verification
-
-1. Open **New verification**, choose **Order history is visible**, and confirm authorization for the disposable demo environment.
-2. Generate the plan. Inspect the seeded requirements, browser text assertion, JSON total assertion, and heuristic change mapping.
-3. Start verification. Watch persisted execution events and independently evaluated evidence in the live view.
-4. Open the report, expand the assertion evidence, inspect the screenshot and response artifact, and export Markdown.
-5. Try **Order totals regression** for BLOCKED, **Accessibility audit gap** for UNKNOWN / NEEDS_REVIEW, and **Disposable staging interaction** to inspect a request-bound approval.
-6. In **Policy comparison**, run the stagnating-selector scenario to execute all three stopping policies under equal ceilings.
-
-The browser's `http://demo:8001` staging URL is a Docker-network destination used by the worker. Open the demo yourself at `http://localhost:8019`.
-
-## OpenRouter
-
-Set `OPENROUTER_API_KEY` in `.env`, then recreate API and worker:
-
-```sh
-docker compose up -d --force-recreate api worker
+```env
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_MODEL=your_selected_model
 ```
 
-Use **Settings** to change the model ID. The server checks OpenRouter's model catalog and structured-output capabilities before calls. Enable OpenRouter in a new verification: the run pauses in DRAFT for a review of proposed structured checks. Choose the original plan or accept reviewed suggestions. AI advice is connected to planning, PR/impact analysis, replanning when triggered, and evidence-based reporting. All assertions and release decisions remain deterministic. Missing credentials activate a clearly labeled deterministic workflow. Model failures are recorded and fall back to deterministic checks. API keys are never returned to the frontend.
+Use the service URLs defined by Docker Compose to open the application.
 
-## Checks and demonstration
+### Try ShipProof
 
-```sh
-# Isolated unit/API tests (SQLite, not your persisted PostgreSQL data)
-docker compose run --rm api pytest -q
+1. Open the application.
+2. Select a bundled demo scenario or provide a supported public GitHub PR.
+3. Add feature requirements and an authorized staging URL.
+4. Review the generated verification plan.
+5. Start verification and inspect the execution timeline.
+6. Review the evidence-backed release report.
 
-# Real browser/API/approval/UI workflow against the running PostgreSQL stack
-docker compose exec worker python integration/live_demo.py
+The deterministic demo is designed to work without a paid LLM API.
 
-# Actual process interruption and leased-job recovery
-docker compose exec worker python integration/recovery.py
+## Execution Policy Experiments
 
-# Six-scenario, three-policy measured evaluation
-docker compose exec worker python integration/benchmark.py
+ShipProof also explores three different strategies for controlling autonomous verification:
 
-# TypeScript type checking and production bundle are required by the frontend image build
-docker compose build frontend
-```
+| Policy | Strategy |
+|---|---|
+| Fixed limit | Stop on completion or a predefined hard limit |
+| Stagnation-aware | Detect repeated non-progress and trigger replanning |
+| Progress-aware | Consider evidence coverage, stagnation, and remaining resources |
 
-Results from demonstrations are written to `artifacts/*-results.json`, alongside actual browser screenshots. Checked-in benchmark snapshots live in `benchmarks/`. Tests never insert fake completed runs or fabricated screenshots. Fixtures specify inputs only.
+The goal is to investigate whether smarter execution control reduces unnecessary work **without compromising verification coverage**.
 
-## Scope and safety
+No performance improvement should be assumed without reproducible experiments.
 
-External staging execution is deliberately disabled: this MVP does not provide a hardened egress proxy capable of enforcing IP and redirect restrictions for arbitrary external hosts. Public GitHub PR ingestion is read-only and supported, but executable verification targets remain limited to the bundled demo. The worker rejects every other origin and any unsupported route. Browser contexts block service workers and non-GET/HEAD requests. HTTP redirects are not followed. The only POST is the demo acknowledgement simulation, guarded by an expiring, single-use approval tied to the canonical action, run, and environment.
+## Design Principles
 
-A READY recommendation means all configured requirements passed within scope. Unknown requirements never count as passing. A terminal verification can be COMPLETE while the release needs review. See [architecture](docs/architecture.md), [decisions](docs/decisions.md), [security](docs/security.md), [evaluation](docs/evaluation.md), and [limitations](docs/limitations.md).
+**Verification before confidence.** Assertions and observable evidence determine outcomes.
 
-To exercise interruption during a real browser navigation as well as an API call:
+**Separation of concerns.** Planning, execution, verification, and control remain independent components.
 
-```sh
-docker compose exec worker python integration/recovery.py --browser
-```
+**Explicit uncertainty.** Missing evidence never silently becomes a PASS.
+
+**Durable execution.** Run state, decisions, and budgets are persisted for reliability and inspection.
+
+**Safety by design.** Verification targets authorized staging environments. Consequential actions require appropriate approval.
+
+**Measure, don't assume.** Architectural improvements should be evaluated against simpler baselines.
+
+## Current Scope and Limitations
+
+ShipProof is intended for scoped release verification, not exhaustive software correctness.
+
+Its effectiveness depends on requirement quality, available staging environments, supported browser/API checks, and the evidence collected.
+
+LLM-generated verification plans may be incomplete or incorrect. Browser checks can be flaky, and untested functionality may still contain defects.
+
+It is not a replacement for code review, security testing, or a complete production release process.
+
+## Motivation
+
+ShipProof began with a broader architectural question:
+
+**How should an AI agent know when to stop?**
+
+Rather than treating that as an isolated research experiment, ShipProof applies the question to a practical engineering workflow: verifying software before release.
+
+The larger idea is to build AI systems that don't just execute more actions, but make better decisions about **what needs verification, what constitutes progress, and when enough evidence has been collected**.
+
+---
+
+**Built as an exploration of agentic systems architecture, reliability engineering, and evidence-driven software verification.**
